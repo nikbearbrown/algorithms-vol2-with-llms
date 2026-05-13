@@ -1,187 +1,219 @@
-# Bayes' Rule and Bayesian Inference
+# Chapter 1 — Bayes' Rule and Bayesian Inference
 
-## TL;DR
+*The one-line formula that gets the right answer only if you know which question you're actually asking.*
 
-Bayes' rule is a recipe for updating belief in proportion to evidence: posterior is proportional to likelihood times prior. Reach for this chapter when you have prior knowledge, new data, and need to combine them coherently — diagnostic testing, A/B-test interpretation, fraud scoring, recommender systems, anything where "given what I knew before, what should I believe now?" is the question. After consulting it, you can identify priors, likelihoods, and posteriors in a real problem; choose between exact, conjugate, and approximate inference; and recognize when MCMC or variational methods are warranted.
+---
 
-## Recognition pattern
+Imagine a doctor orders a test for a rare disease. The test is 99% accurate — both ways. If you have the disease, it says positive 99% of the time. If you don't have the disease, it says negative 99% of the time. The disease itself affects 1 in 1,000 people in the population being screened.
 
-Three signals.
+The test comes back positive.
 
-*You have prior information.* You start with a belief about a parameter or hypothesis — a base rate, a previous experiment's posterior, an expert's elicited probability — and new data should update that belief. Frequentist methods can ignore the prior, but in practice the prior is doing work whether you acknowledge it or not. Bayes makes the work explicit.
+Most people — including, in documented studies, many physicians — hear "99% accurate" and conclude the patient probably has the disease. Maybe 99% likely. Maybe a little less, accounting for some fuzziness. But high. Very high.
 
-*The quantity of interest is a probability, not a point estimate.* You want `P(disease | positive test)`, `P(this version is better | observed conversions)`, `P(model parameter > threshold | training data)`. Bayes returns full posterior distributions; non-Bayesian methods return point estimates with confidence intervals that are routinely misinterpreted.
+The correct answer is about 9%.
 
-*Decisions follow from the posterior.* The output of Bayesian reasoning is a probability that feeds a decision — treat or don't, ship the new version or don't, allocate this much budget to that channel. Bayesian decision theory pairs posteriors with utility functions to produce decisions; this is the standard machinery for decision-under-uncertainty across medicine, finance, autonomous systems, and increasingly machine learning.
+This is not a trick. There's no fine print. The arithmetic is straightforward, and once you see it, you can't unsee it. The patient with the positive test is almost certainly fine — more than 90% likely to be fine — and the same 99%-accurate test will return the correct interpretation every time, if you run the right calculation instead of trusting your intuition.
 
-A signal Bayes is *not* the right tool: you have effectively no prior information and a very large sample. Frequentist and Bayesian answers converge with sample size; with `n = 10⁶` and a flat prior, the difference is negligible. Bayes earns its place when priors carry information or sample size is small.
+The calculation is Bayes' rule. One line. The question is why the answer comes out so different from what the intuition says, and what that gap is trying to tell us about probability itself.
 
-The misconception engaged in §9 is the practitioner block: "Bayesian methods require a strong prior." They do not. Weak, uninformative, or even improper priors are common and well-understood; the framework gives you the *option* of incorporating prior information, not a requirement to.
+---
 
-## What you need to know first
+## The Formula and What It Actually Says
 
-This chapter assumes basic probability — sample spaces, conditional probability, Bayes' rule mechanically — at the level of an undergraduate statistics course. The probability primer on the companion page covers prerequisites for any reader rusty on the basics. For randomized algorithms whose analysis uses linearity of expectation and concentration inequalities, see Vol. 1 Chapter 12. For decision-theoretic foundations that build on Bayesian posteriors, see Chapter 3 (explore/exploit) and Chapter 4 (game theory).
+Bayes' rule, in its most compact form:
 
-## The formula and what it means
+$$P(H \mid E) = \frac{P(E \mid H) \cdot P(H)}{P(E)}$$
 
-Bayes' rule, in one line:
+Four quantities. Let me name each one carefully, because half the errors in applied probability come from mixing up which is which.
 
-```
-P(H | E) = P(E | H) · P(H) / P(E)
-```
+$P(H)$ is the **prior**. It's your belief about hypothesis $H$ *before* you see any evidence. In the medical example, $H$ is "this patient has the disease," and the prior is 0.001 — the base rate in the population being screened. One in a thousand.
 
-Read it backward to forward.
+$P(E \mid H)$ is the **likelihood**. It's the probability of observing the evidence $E$ *given that* $H$ is true. Here, $E$ is a positive test result, and the likelihood is 0.99 — the test's sensitivity.
 
-`P(H)` — the **prior**. Your belief about hypothesis `H` *before* seeing evidence `E`. The base rate of the disease in the population. The fraction of email that is spam. The historical conversion rate before the experiment.
+$P(E)$ is the **marginal probability of the evidence**. The total probability of a positive test, regardless of whether the patient is sick or healthy. This is the term most people skip, and it's doing the most work.
 
-`P(E | H)` — the **likelihood**. The probability of observing the evidence *given* the hypothesis is true. The sensitivity of the test (the probability the test is positive when the patient has the disease). The probability the model assigns to a particular word given a topic.
+$P(H \mid E)$ is the **posterior**. Your updated belief about $H$ *after* seeing the evidence. This is what you actually want: the probability the patient has the disease given the positive test.
 
-`P(E)` — the **evidence** or **marginal likelihood**. The total probability of observing the evidence, marginalized over all hypotheses: `P(E) = Σ_h P(E | h) · P(h)`. Often the hardest term to compute.
+The formula is a tautology — it follows directly from the definition of conditional probability. There's no profound physics here, no controversial assumptions. It's arithmetic. The insight isn't in deriving the formula; it's in *applying* it correctly — understanding which term is which, and refusing to confuse the posterior with the likelihood.
 
-`P(H | E)` — the **posterior**. Your updated belief about `H` after seeing `E`. The output of the inference.
+That last confusion has a name: the **inverse fallacy**. Conflating $P(E \mid H)$ with $P(H \mid E)$. Confusing "the probability of a positive test given the disease" with "the probability of the disease given the positive test." The test's 99% accuracy is the first quantity. What the doctor and patient need is the second. They are not the same number, and in this case they're not even close.
 
-The formula is a tautology — it follows directly from the definition of conditional probability. The work lives in *applying* it correctly: identifying which quantity is the prior versus the likelihood, computing the marginal, and interpreting the posterior. Most Bayesian errors are bookkeeping errors at one of those four points.
+<!-- → [INFOGRAPHIC: labeled diagram of the four Bayes terms arranged as a flow — prior P(H) feeds into the formula alongside likelihood P(E|H), marginal P(E) sits beneath as the normalizer, and posterior P(H|E) emerges on the right; arrows color-coded to show what each term represents; the inverse fallacy highlighted as a crossed arrow between likelihood and posterior — reader should see at a glance which direction the conditioning runs and where the confusion lives] -->
 
-## Conjugate priors — when the math works out
+---
 
-For some likelihood-prior pairings, the posterior has the same functional form as the prior. The math closes; you can update analytically without sampling. These are **conjugate priors**.
+## Running the Arithmetic
 
-Three pairings cover most practitioner needs:
+Let's do the medical example correctly.
 
-**Beta-Binomial.** Likelihood: binomial (counts of successes in `n` trials). Prior: Beta(α, β). Posterior: Beta(α + successes, β + failures). Used for conversion-rate estimation, A/B testing, sports analytics. Update is one line; posterior mean is `(α + successes) / (α + β + n)`.
+The prior probability of disease: $P(D) = 0.001$.  
+The prior probability of no disease: $P(\neg D) = 0.999$.  
+The sensitivity (true-positive rate): $P(+ \mid D) = 0.99$.  
+The false-positive rate: $P(+ \mid \neg D) = 0.01$.
 
-**Normal-Normal.** Likelihood: normal with known variance. Prior: normal. Posterior: normal with mean and variance computable from the standard formulas. Used for parameter estimation when you assume Gaussian noise.
+First, the marginal. How likely is a positive test in this population?
 
-**Gamma-Poisson.** Likelihood: Poisson (rare-event counts). Prior: Gamma. Posterior: Gamma. Used for arrival-rate estimation, defect counts, click counts.
+$$P(+) = P(+ \mid D) \cdot P(D) + P(+ \mid \neg D) \cdot P(\neg D)$$
 
-A **conjugate-prior reference card** lives on the companion page. For most production applications where the model is simple, conjugate updates are all you need. The simplicity is what makes Bayesian A/B testing, for instance, a one-line update per observation rather than a full inference pipeline.
+$$P(+) = (0.99)(0.001) + (0.01)(0.999) = 0.00099 + 0.00999 = 0.01098$$
 
-When the likelihood is non-conjugate or the model is hierarchical, conjugate updates fail and you reach for Markov Chain Monte Carlo (MCMC) or variational inference.
+Now the posterior:
 
-## MCMC, variational inference, and approximate Bayesian computation
+$$P(D \mid +) = \frac{P(+ \mid D) \cdot P(D)}{P(+)} = \frac{0.99 \times 0.001}{0.01098} \approx 0.090$$
 
-Three families of approximate methods, used when the posterior cannot be computed analytically.
+About 9%.
 
-**MCMC (Markov Chain Monte Carlo).** Construct a Markov chain whose stationary distribution is the posterior; sample from the chain; the samples approximate the posterior. Algorithms: Metropolis-Hastings (general-purpose, can be slow), Gibbs sampling (when conditional posteriors are tractable), Hamiltonian Monte Carlo / NUTS (efficient on continuous parameters, used by Stan and PyMC) [verify]. MCMC is the workhorse for posterior inference when the posterior is high-dimensional and non-conjugate. Diagnostics — trace plots, R-hat, effective sample size — are essential; MCMC can fail silently if the chain has not mixed.
+The intuition wants to say 99%. The arithmetic says 9%. Why?
 
-**Variational inference (VI).** Approximate the posterior with a simpler distribution (often a factorized Gaussian) chosen to minimize KL divergence to the true posterior. Faster than MCMC, scales to larger datasets, used in production at scale. The cost: VI may underestimate posterior variance and miss multimodality. Mean-field VI is the standard form; structured VI relaxes the factorization assumption.
+Picture the population directly. Start with 1,000 people. On average, one has the disease; 999 don't. The test is run on all of them.
 
-**ABC (Approximate Bayesian Computation).** Used when the likelihood is intractable but you can simulate from the model. Sample candidate parameters from the prior, simulate data, accept candidates whose simulated data is "close enough" to observed data. Used in population genetics, epidemiology, and other simulation-driven sciences.
+The one true case almost certainly tests positive (99% sensitivity): 1 true positive.  
+The 999 healthy people: the 99%-specific test still generates a false positive 1% of the time, so roughly 10 false positives.
 
-The choice among these is driven by problem structure. Conjugate when possible; MCMC when conjugate fails and accuracy matters; VI when scale matters and approximation is acceptable; ABC when likelihoods are simulation-only.
+Among all 11 positive results, only 1 is a true case. That's 1/11, which is about 9%.
 
-## Bayesian decision theory
+<!-- → [INFOGRAPHIC: 1,000-person icon grid — one figure highlighted red (true case), ten figures highlighted orange (false positives), 989 figures grey (true negatives); caption walks the reader through the count; reader should immediately see why the positive predictive value is ~9% despite 99% sensitivity — the visual makes the base-rate argument faster than any paragraph] -->
 
-The output of Bayesian inference is a posterior distribution. The decision is what you *do* given the posterior. Bayesian decision theory pairs the posterior with a **utility function** `U(action, outcome)` and chooses the action maximizing **expected utility**:
+The base rate is doing the work. The prior — the 1-in-1,000 prevalence — is so low that even a highly accurate test is mostly detecting nothing. The denominator $P(+)$ is dominated by the false-positive term because there are so many more healthy people to generate false positives from.
 
-```
-action* = argmax_a Σ_outcome U(a, outcome) · P(outcome | data)
-```
+This is not a bug in the test. It's not a bug in Bayes' rule. It's what happens when you apply a screening tool to a low-prevalence population and forget to account for the base rate. The identical test applied in a high-prevalence population — symptomatic patients, exposed contacts, a high-risk group where maybe 30% have the disease — gives a completely different posterior, well above 90%.
 
-The expectation is over the posterior. The framework is general — it covers medical diagnosis (treat or test further), spam classification (filter or deliver), inventory ordering (under demand uncertainty), and bandit decisions (Chapter 3).
+Same test. Same sensitivity. Same specificity. Different population, different prior, different answer.
 
-The framework's discipline: the action you pick depends on *both* the posterior and the utility function. A 5% posterior probability of a serious disease may justify treatment if the cost of treatment is low and the cost of missing the disease is high. The same 5% may not justify treatment if the cost asymmetry runs the other way. Bayesian decision theory makes the asymmetry explicit.
+---
 
-## Decision rules
+## What the Prior Actually Represents
 
-| Situation | Approach |
-| --- | --- |
-| Conjugate model, small data | Analytical update (Beta-Binomial, Normal-Normal, Gamma-Poisson) |
-| Non-conjugate, moderate dimension, accuracy matters | MCMC (Stan, PyMC) |
-| Non-conjugate, high dimension, scale matters | Variational inference |
-| Likelihood intractable, can simulate | ABC |
-| Need decisions, not just inference | Pair posterior with utility function |
-| Sequential decisions under uncertainty | Bandit framework (Chapter 3) — Thompson sampling is Bayesian |
-| Multiple data sources, hierarchical structure | Hierarchical Bayesian model |
-| Want to compare models | Bayes factor or marginal likelihood (caveat: sensitive to priors) |
-| Very large sample, weak prior | Frequentist often suffices and is faster |
-| Reporting to non-technical stakeholders | Posterior probability is more intuitive than confidence interval |
+The word "prior" makes people nervous. It sounds like an opinion — like you're being asked to bake your prejudices into the math. This nervousness has a name in the methodology wars: it's the objection that "Bayesian methods require a strong prior."
 
-## Worked example — interpreting a positive medical test
+The objection is mistaken, and it matters to say why.
 
-A patient receives a positive result on a screening test for a low-base-rate disease. The test has 99% sensitivity (true-positive rate) and 99% specificity (true-negative rate). The disease affects 1 in 1,000 people in the screened population. What is the probability the patient actually has the disease?
+A prior is not a strong opinion. It's any probability distribution you assign to the hypothesis before seeing the data. That distribution can be flat — a uniform distribution that says "I have no idea" — or it can be peaked, representing genuine prior knowledge from previous experiments or domain expertise. The framework accepts both. An uninformative prior is a valid prior. It's just a statement that the data should do all the work.
 
-This is the canonical Bayesian-reasoning problem and the one most people get wrong on first encounter. The intuition that the answer is "around 99%" is wrong by an order of magnitude.
+What the framework does not let you do is have *no* prior at all. Every analysis embeds assumptions about the baseline. Frequentist analyses have them too — they're just implicit, hiding in the choice of significance threshold, the assumption of equal prior probability, the selection of which hypotheses to test. Bayesian analysis forces the assumption into the open where you can examine and argue with it. That's not a weakness; it's a feature. Making assumptions visible is how you can check whether they're justified.
 
-**Set up the problem.**
+The prior's influence also diminishes as data accumulates. With 10 observations, a strong prior dominates. With a thousand observations, the likelihood drowns it out. With a million observations, virtually any reasonable prior leads to the same posterior. This convergence is formalized in a result called the Bernstein-von Mises theorem: under regularity conditions, as the sample grows large, the posterior distribution converges to a normal centered on the maximum likelihood estimate, regardless of the prior. The prior washes out. This is why Bayesian and frequentist methods reach the same conclusions in large-sample settings and diverge in small-sample settings — the regime where the prior actually carries information.
 
-- Prior: `P(D) = 0.001`. Base rate.
-- Prior of no disease: `P(¬D) = 0.999`.
-- Likelihood given disease: `P(+ | D) = 0.99`. Sensitivity.
-- Likelihood given no disease: `P(+ | ¬D) = 0.01`. False-positive rate (1 − specificity).
+If you have very little data and a sensible prior, use it. If you have enormous data and a weak prior, it barely matters. The framework is not telling you to trust your guesses over evidence; it's telling you to combine whatever you know before the data arrives with whatever the data says, in exactly the proportion that each deserves.
 
-**Apply Bayes.**
+---
 
-```
-P(D | +) = P(+ | D) · P(D) / P(+)
+## The Update as a Machine
 
-P(+) = P(+ | D) · P(D) + P(+ | ¬D) · P(¬D)
-     = 0.99 · 0.001 + 0.01 · 0.999
-     = 0.00099 + 0.00999
-     = 0.01098
+One of the most useful things to understand about Bayes' rule is that it composes.
 
-P(D | +) = 0.99 · 0.001 / 0.01098
-         ≈ 0.0902
-```
+Today's posterior becomes tomorrow's prior. Each new piece of evidence updates your belief, and the update is the same formula applied again to the new starting point. This is sequential updating, and it's how the framework was designed to work.
 
-**The answer is about 9%, not 99%.** A positive test result on this screening problem moves the posterior from 0.1% to ~9% — a 90× update — but the patient is still over 90% likely *not* to have the disease.
+Suppose after the first positive test, the doctor orders a second, independent test — different technology, same sensitivity and specificity. Yesterday's posterior (9%) becomes today's prior. A second positive result runs through Bayes' rule again.
 
-**Why.** The prior is doing the work. With base rate 0.001, the population of 1,000 people contains roughly 1 true case and 999 non-cases. The 99%-sensitive test catches that one case; the 99%-specific test produces about 10 false positives among the 999 non-cases. Among the 11 positive results, only one is a true case — about 9%.
+New prior: $P(D) = 0.09$.  
+Second test positive: $P(+ \mid D) = 0.99$, $P(+ \mid \neg D) = 0.01$.
 
-**The practitioner takeaway.** Sensitivity and specificity are properties of the *test*. The posterior probability of disease given a positive result also depends on the **base rate** in the screened population. Screening for a rare disease in an unselected population produces mostly false positives, even with a highly accurate test. The same test applied in a high-prevalence population (symptomatic patients, exposed contacts, high-risk groups) produces a very different posterior.
+$$P(+) = (0.99)(0.09) + (0.01)(0.91) = 0.0891 + 0.0091 = 0.0982$$
 
-**Practical applications.**
+$$P(D \mid +, +) = \frac{0.99 \times 0.09}{0.0982} \approx 0.91$$
 
-*Pre-test probability matters.* Clinicians who order a test should have a pre-test probability in mind; the test result updates that probability via Bayes. A positive result with a pre-test probability of 30% gives a posterior of about 98%; a positive result with a pre-test probability of 0.1% gives the 9% above. Same test, different action.
+Two independent positive tests moves the posterior from 0.1% to ~9% to ~91%. The base rate problem is solved not by a better test but by a second data point — a second independent likelihood update. The machine is composable.
 
-*Confirmatory testing.* When a screening test is positive, follow-up with a more specific (or independent) test. Two independent positive tests with combined sensitivity 0.99 × 0.99 = 0.98 and combined false-positive rate 0.01 × 0.01 = 0.0001 give a posterior in the 90%+ range even at low base rates.
+This is why confirmatory testing works. It's not a ritual. It's a consequence of the mathematics: independent evidence multiplies. A single positive result on a low-base-rate disease is weak; two independent positives are decisive.
 
-*Threshold setting.* A decision rule "treat if posterior > threshold" depends on the cost asymmetry between treatment and missed diagnosis. Bayesian decision theory makes the threshold explicit; "treat if test is positive" hides the threshold inside the test's operating point.
+<!-- → [CHART: horizontal bar or stepped chart showing posterior probability at three stages — Prior (0.1%), After Test 1 (9%), After Test 2 (91%) — reader should see the dramatic nonlinear jump that two independent updates produce; logarithmic scale on x-axis recommended to show all three values without compressing the first two] -->
 
-The lesson: Bayes' rule is one line of arithmetic, but the line gets the right answer only if you correctly identify the prior, the likelihood, and the marginal. The misconception that a 99%-accurate test gives a 99% posterior conflates `P(+ | D)` with `P(D | +)` — the inverse fallacy, the foundational Bayesian error.
+---
 
-## Failure modes — when "Bayesian methods require a strong prior" misleads
+## From Posteriors to Decisions
 
-The misconception engaged: "Bayesian methods require a strong prior."
+Inference gives you a posterior. A posterior is a probability distribution over some hypothesis or parameter. That's useful for understanding the world. It becomes useful for acting in the world only when paired with a decision rule.
 
-The framing has two readings: that Bayesian methods *demand* prior information, and that the prior *dominates* the posterior. Both are wrong on careful examination, with caveats.
+Bayesian decision theory is the machinery for that pairing. The setup: you have a set of possible actions, a set of outcomes, and a utility function $U(a, \omega)$ that scores how good action $a$ is when outcome $\omega$ occurs. The Bayesian decision is the one that maximizes expected utility:
 
-**Bayesian methods do not require informative priors.** Uninformative priors are widely used and well-studied. A uniform prior on a probability parameter (Beta(1, 1)) reflects ignorance about the parameter's value while still being a valid prior. Jeffreys priors are constructed to be invariant under reparameterization. Improper priors (those that don't integrate to 1) are sometimes used and can yield proper posteriors as long as the data is informative. The framework is permissive about priors.
+$$a^* = \operatorname{argmax}_a \sum_\omega U(a, \omega) \cdot P(\omega \mid \text{data})$$
 
-**The prior's influence diminishes with data.** As `n → ∞`, the posterior is dominated by the likelihood; the prior's effect decays. The Bernstein-von Mises theorem [verify] formalizes this: under regularity conditions, the posterior converges to a normal distribution centered on the maximum likelihood estimate. With `n = 10⁶` independent observations, the prior is essentially irrelevant.
+The expectation is over the posterior. You're averaging the utility of each action over all possible outcomes, weighted by how probable each outcome is given what you've seen.
 
-**Where the misconception is partially right.** With small samples, the prior matters and the choice of prior should be defensible. Reporting Bayesian results without disclosing the prior is bad practice. Sensitivity analysis — running the inference with several reasonable priors — is the corrective; if the conclusion changes with the prior, the data is not strong enough to support a confident conclusion regardless of methodology.
+The framework makes something explicit that intuition tends to collapse: the optimal action depends on *both* the posterior *and* the utility function. A 9% probability of a serious, treatable disease may justify treatment if the cost of treatment is low and the cost of a missed case is catastrophic. A 9% probability of a minor condition may not justify treatment if the intervention has meaningful side effects. Same posterior, different utility function, different action. The asymmetry between the cost of false positives and false negatives is not a detail — it's the whole decision.
 
-**Where the misconception is dangerous.** A practitioner who avoids Bayes for fear of "needing a strong prior" defaults to frequentist methods that have implicit priors (the maximum likelihood estimator's point assumption, the choice of significance threshold) without acknowledging them. Bayes makes the assumptions visible; refusing Bayes does not eliminate the assumptions, only hides them.
+This is where much real-world reasoning fails. People look at a posterior and reason from the number alone, forgetting that numbers don't have opinions about consequences. A probability tells you what's likely. A utility function tells you what matters. You need both.
 
-**Other Bayesian failure modes worth naming.**
+---
 
-*Misidentifying the prior, likelihood, or marginal.* Most Bayesian errors are at the formula-application step, especially the inverse fallacy (`P(+ | D)` confused with `P(D | +)`).
+## When the Posterior Can't Be Computed Analytically
 
-*MCMC convergence issues.* MCMC can produce wrong answers if the chain has not mixed. Diagnostics (trace plots, R-hat, effective sample size) catch most cases; running multiple chains and comparing is good practice. Production Bayesian inference without diagnostics is a quiet failure mode.
+The formula is clean. The computation is sometimes not.
 
-*Improper priors leading to improper posteriors.* Improper priors require care; certain combinations produce posteriors that don't integrate, making the inference meaningless. Verify propriety before deploying.
+For certain pairings of likelihood and prior — called **conjugate pairings** — the posterior has the same mathematical form as the prior, just with updated parameters. The Beta-Binomial pairing is the most useful: if you start with a Beta prior over a probability parameter and observe binomial data (counts of successes in trials), the posterior is another Beta, with parameters updated by adding the observed successes and failures. One line of arithmetic. No sampling, no approximation.
 
-*Hierarchical models with non-identifiable parameters.* Two parameters that always appear in the data only as a sum cannot be separately identified; the prior is what determines the posterior split. This is a feature in some applications (the prior carries the structural information) and a bug in others (the conclusion is more about the prior than the data).
+The Normal-Normal pairing works similarly for continuous observations with Gaussian noise. The Gamma-Poisson pairing covers arrival-rate estimation, defect counts, and click-through rates. These three pairings handle a large fraction of practical Bayesian inference in production systems.
 
-The corrective heuristic: state the prior, the likelihood, and how the posterior is being computed. Use diagnostics. Run sensitivity analysis when the prior has any chance of mattering. The framework is rigorous; the failures are bookkeeping and discipline.
+<!-- → [TABLE: conjugate prior reference card — three rows (Beta-Binomial, Normal-Normal, Gamma-Poisson); columns: likelihood type, prior family, posterior family, update rule in one line, typical use case; reader should be able to look up which pairing applies to their problem without returning to the prose] -->
 
-## Cross-references
+When the model is more complex — a hierarchical structure, a non-standard likelihood, multiple parameters with dependencies — conjugate updates fail. The posterior exists in principle but can't be written in closed form. This is where approximate methods enter.
 
-For randomized algorithms, the role of randomness in computation, and probability theory underlying both Bayesian and randomized methods, see Vol. 1 Chapter 12. For Thompson sampling — Bayesian explore/exploit in bandits — see Chapter 3. For Bayesian games (game theory with prior beliefs about types), see Chapter 4. For optimal stopping with Bayesian updating, see Chapter 2.
+**MCMC** (Markov Chain Monte Carlo) constructs a sequence of random samples whose long-run distribution is the target posterior. The most widely used variant today is Hamiltonian Monte Carlo, implemented in probabilistic programming systems like Stan and PyMC. The samples approximate the posterior; more samples, better approximation. The cost is computational — MCMC is slow for large models or large datasets — and requires diagnostics to verify the chain has actually converged to the right distribution. A chain that hasn't mixed produces confidently wrong answers.
 
-## Companion-page handoffs
+**Variational inference** takes a different approach: approximate the posterior with a simpler distribution — often a factorized Gaussian — and tune that approximation to minimize the gap to the true posterior. Faster than MCMC, scales to large datasets, but may underestimate uncertainty and miss multimodality. It's the method of choice when you need Bayesian inference at scale and can tolerate some approximation error.
 
-Conjugate prior reference card; PyMC and Stan worked examples (Beta-Binomial, hierarchical models, Bayesian linear regression); MCMC diagnostics primer (trace plots, R-hat, ESS); ABC tutorial; variational inference walkthrough; Bayesian A/B testing implementation; Bayesian network structure-learning examples. Available at bearbrown.co/algorithms-by-bear-vol2/chapter-1.
+**Approximate Bayesian Computation** (ABC) is for the case where even evaluating the likelihood is intractable — the model is too complex to write down a probability of the data. Instead: sample candidate parameters from the prior, simulate data from the model with those parameters, accept the candidate if the simulated data is close enough to the real data. The result is samples from an approximate posterior. Slower than both MCMC and VI, but applicable to simulation-based models in epidemiology, population genetics, and agent-based settings where there's no other option.
 
-## What this chapter does not enable
+The decision among methods is driven by the problem structure: conjugate when the model permits, MCMC when accuracy is paramount, variational when scale matters, ABC when the likelihood is simulation-only.
 
-This chapter does not give a treatment of probabilistic programming or Bayesian deep learning. Probabilistic programming languages (PyMC, Stan, Pyro, NumPyro, Edward) deserve dedicated treatment beyond reference scope; for that, consult the languages' documentation and tutorials. Bayesian deep learning — variational autoencoders, Bayesian neural networks, normalizing flows for posterior approximation — lives in the *Algorithms by Bear* magazine. Bayesian nonparametrics (Dirichlet processes, Gaussian processes for nonparametric regression) is touched but not developed; Rasmussen and Williams's *Gaussian Processes for Machine Learning* is the canonical reference.
+<!-- → [INFOGRAPHIC: decision flowchart — entry point "Can you use a conjugate prior?"; yes → analytical update; no → "Does accuracy matter more than speed?"; yes → MCMC; no → "Is the likelihood tractable?"; yes → variational inference; no → ABC; each leaf node includes a one-line description of the tradeoff accepted — reader should be able to navigate to the right method for their problem in four binary decisions] -->
 
-## Capability statement
+---
 
-You can now identify priors, likelihoods, and posteriors in a real Bayesian problem; apply Bayes' rule analytically when conjugate priors fit; choose between MCMC, variational inference, and ABC when conjugate updates fail; pair posteriors with utility functions for decision-making; and avoid the inverse fallacy that sinks most first-pass Bayesian reasoning. The next time a problem arrives that combines prior knowledge with new evidence — diagnostic, A/B, fraud-scoring, recommender — the path from data to posterior to decision is in your hands.
+## The Failure Modes
 
+Most Bayesian errors are bookkeeping errors. The formula is short enough to fit on a napkin; the mistakes live in the application.
+
+**The inverse fallacy.** Confusing $P(E \mid H)$ with $P(H \mid E)$. The sensitivity of the test is not the probability of the disease. The probability of a match given innocence is not the probability of innocence given the match. This single confusion has sent people to prison and driven clinical decisions the math doesn't support. The corrective is mechanical: write out all four terms of Bayes' rule before drawing any conclusion.
+
+**Forgetting the base rate.** The marginal $P(E)$ reflects the prior probability of seeing the evidence at all. Skip it, and the posterior is wrong. The medical example shows exactly how badly wrong: a factor of ten.
+
+**MCMC convergence failure.** A Markov chain that hasn't mixed produces samples from the wrong distribution. The samples look like samples — numbers, distributions, credible intervals — and nothing flags the failure automatically. Diagnostics are not optional: trace plots, the R-hat statistic (values near 1.0 suggest convergence), effective sample size. Running multiple chains from different starting points and checking that they agree is the simplest check. If they don't agree, the chain hasn't converged.
+
+**Improper priors producing improper posteriors.** Some "uninformative" priors don't integrate to 1 — they're improper. An improper prior doesn't invalidate the framework, but it requires checking that the posterior *is* proper (that it integrates to 1) before interpreting the results. Certain likelihood-prior combinations produce improper posteriors that can't be normalized, which makes the inference meaningless.
+
+**Using Bayes where sample size makes it irrelevant.** With $n = 10^6$ and a flat prior, the Bayesian and frequentist answers are essentially identical. The full posterior-inference machinery adds complexity without adding information. Bayes earns its place when priors carry real information or sample size is small. Applying it everywhere because it's principled is a waste of compute.
+
+---
+
+## The Capability You Now Have
+
+The next time you see a diagnostic test, a model performance metric, a screening result, or any conditional probability presented without its base rate — you'll know something is missing.
+
+You can write out $P(H \mid E) = P(E \mid H) \cdot P(H) / P(E)$ and identify which quantities you have and which you need. You can recognize when the inverse fallacy is hiding in someone's conclusion. You can judge whether a conjugate update is available or whether you need the heavier machinery. You can pair a posterior with a utility function and understand why the decision is not determined by the probability alone.
+
+That's what this chapter is actually about. Not the formula — the formula is four symbols. What's harder, and what's worth developing, is the habit of asking: *which probability, exactly, are you claiming to know?*
+
+---
+
+## Exercises
+
+### Warm-Up
+
+**1.** A spam filter flags 2% of legitimate email as spam (false-positive rate) and misses 5% of actual spam (false-negative rate). Spam makes up 30% of all incoming email. A message is flagged. What is the probability it is actually spam? *(Tests: correct identification of prior, likelihood, and marginal; direct application of Bayes' rule.)*
+
+**2.** A factory produces widgets with a 1% defect rate. A quality-control test correctly identifies a defective widget 95% of the time, and incorrectly flags a good widget 3% of the time. A randomly selected widget tests positive for defect. What is the probability it is actually defective? *(Tests: same mechanics as the medical example in a production context; reader should notice the same base-rate structure.)*
+
+**3.** You estimate a coin is fair with 80% confidence and biased (60% heads) with 20% confidence. You flip the coin five times and get four heads. Use Bayes' rule to update your probability that the coin is biased. *(Tests: discrete hypothesis version of Bayes; reader must correctly compute the likelihood of four heads under each hypothesis.)*
+
+### Application
+
+**4.** A city screens residents for a disease with prevalence 0.5%. The test has 98% sensitivity and 97% specificity. Your friend tests positive and calls you in a panic, saying "the test is 98% accurate, so I almost certainly have it." Walk through the correct calculation and explain where your friend's reasoning went wrong. Then recalculate: what prevalence would make a positive test indicate at least 50% probability of disease, holding test accuracy fixed? *(Tests: inverse fallacy identification; algebraic inversion to find the threshold prevalence.)*
+
+**5.** You run an A/B test. Variant B gets 52 conversions out of 1,000 visits; Variant A gets 48 conversions out of 1,000 visits. Using a Beta-Binomial conjugate update with a uniform prior Beta(1,1) on each variant's conversion rate, compute the posterior mean conversion rate for each variant. Does the data support concluding B is better? What would change your confidence? *(Tests: conjugate update mechanics; posterior mean formula; interpretation of small observed differences.)*
+
+**6.** You believe a job candidate has a 40% prior probability of succeeding in the role. You conduct a structured interview; historically, successful candidates pass this interview 70% of the time, and unsuccessful candidates pass it 30% of the time. The candidate passes. Update your posterior. Then the candidate completes a work sample; successful candidates complete it well 80% of the time, unsuccessful candidates 20% of the time. The candidate does well. Apply a second sequential update using the first posterior as the new prior. *(Tests: sequential updating; posterior-as-prior composition; practical decision-making context.)*
+
+### Synthesis
+
+**7.** A fraud-detection model flags a transaction as suspicious. The base rate of fraud in your payment system is 0.2%. The model has 90% sensitivity and 99% specificity. (a) What is the posterior probability that a flagged transaction is fraudulent? (b) Your operations team can investigate 100 flagged transactions per day. Given the posterior, how many of those investigations will find actual fraud? (c) A second independent signal — the card is being used in an unusual location — has a likelihood ratio of 5:1 (five times more likely given fraud than not). Use this as a second Bayesian update. What is the new posterior? *(Tests: end-to-end inference plus operational consequence plus sequential update with a likelihood ratio rather than raw probabilities.)*
+
+**8.** You are using MCMC to fit a Bayesian model and run four chains. Three chains converge to similar posterior means; the fourth wanders. (a) What does this pattern suggest about the inference? (b) Name two diagnostics you would check and describe what a failing value looks like. (c) What would you try to fix the problem? *(Tests: MCMC failure mode recognition; practical diagnostics; no calculation required — tests conceptual understanding of convergence.)*
+
+### Challenge
+
+**9.** The prosecutor's fallacy occurs when $P(\text{evidence} \mid \text{innocence})$ is presented in court as if it were $P(\text{innocence} \mid \text{evidence})$. (a) Explain precisely which term in Bayes' rule the fallacy omits, and why omitting it produces a dramatically wrong answer in low-base-rate scenarios. (b) Construct a numerical example: a DNA match occurs with probability 1 in 10,000 by chance. The suspect is drawn from a database of 500,000 people with no other evidence linking them to the crime. What is the actual posterior probability of guilt? (c) What prior information, if added, would most rapidly change the posterior — a better DNA test or stronger circumstantial evidence placing the suspect at the scene? Justify your answer quantitatively. *(Tests: deep integration of base rate, likelihood ratio, and the inverse fallacy in a high-stakes application; requires constructing the full Bayesian argument from scratch.)*
 
 ---
 
@@ -196,8 +228,7 @@ You can now identify priors, likelihoods, and posteriors in a real Bayesian prob
 **One-time setup before the prompt:**
 
 1. Create a new Claude Project named *Decision Diary*.
-2. Set the project's system prompt to something like:
-   *"You are my structured-thinking partner for a decision diary. I am [your role] in [your domain]. The decisions I make routinely involve [briefly: pricing, hiring, prioritization, model choice, capital allocation, whatever applies]. My decision-making style tends toward [overthinking / undershooting on prior data / consensus-seeking / decisive / quantitative-first / intuition-first — be honest]. For each entry, help me work through one real decision using a specific method from* Algorithms by Bear, Vol. 2*. Do not flatten my judgment. Do not pretend my prior beliefs are weaker than they are. Push back when my framing of the decision is hiding the real question."*
+2. Set the project's system prompt to something like: *"You are my structured-thinking partner for a decision diary. I am [your role] in [your domain]. The decisions I make routinely involve [briefly: pricing, hiring, prioritization, model choice, capital allocation, whatever applies]. My decision-making style tends toward [overthinking / undershooting on prior data / consensus-seeking / decisive / quantitative-first / intuition-first — be honest]. For each entry, help me work through one real decision using a specific method from* Algorithms by Bear, Vol. 2*. Do not flatten my judgment. Do not pretend my prior beliefs are weaker than they are. Push back when my framing of the decision is hiding the real question."*
 3. Create the first entry file inside the project: `2026-XX-XX-ch01-bayes.md`.
 
 **The prompt** (send this in the project after setup):
@@ -262,7 +293,7 @@ Keep the tone direct. This is a journal, not a memo.
 
 ---
 
-## 🕰️ AI Wayback Machine
+## AI Wayback Machine
 
 The ideas in this chapter didn't appear from nowhere. **David Blackwell** built much of the modern theory of Bayesian decision-making in the 1950s — including the Rao–Blackwell theorem, which sharpens any estimator into a better one. He was the first Black scholar elected to the National Academy of Sciences.
 
