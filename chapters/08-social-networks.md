@@ -1,175 +1,259 @@
-# Social Networks
+# Chapter 8 — Social Networks
 
-## TL;DR
-
-Social-network analysis applies graph algorithms to data about relationships — friendships, follows, citations, collaborations, retweets, transactions. Reach for this chapter when a problem asks "who matters?" (centrality), "who clusters together?" (community detection), or "if I activate a small set, how far does influence spread?" (influence maximization). After consulting it, you can choose the right centrality measure, distinguish modularity-based community detection variants, and apply greedy influence maximization with submodularity guarantees.
-
-## Recognition pattern
-
-Three signals.
-
-*The data is relationships.* Followers, friends, collaborators, citations, edges in any graph where edges encode connection between entities. The questions you can answer depend on the relationship structure — directed vs undirected, weighted vs binary, signed (positive/negative) or single-sign.
-
-*The question is about position or spread.* "Who is most central?" "Which group does this person belong to?" "If I want to reach a target audience, which seeds maximize spread?" These are network questions; pure individual-level analysis (regression on attributes) misses the network structure.
-
-*The network is large enough that exact computation is constrained.* Social networks have millions to billions of vertices. Algorithms that scale (`O(V + E)` BFS-based, `O(E log V)` priority-queue-based, randomized sampling) earn their place; algorithms that don't scale (all-pairs shortest paths in dense computation) require approximation.
-
-A signal social-network analysis is *not* the right tool: the entities don't actually have meaningful relationships. Treating users as a graph because they share a platform, without modeling actual relationships, produces network-shaped data without network structure. The graph algorithms then reflect noise rather than signal.
-
-The misconception engaged in §8 — "centrality measures are interchangeable" — produces practitioner errors at scale. Different centralities answer different questions; using one when another is appropriate gives a confidently wrong answer.
-
-## What you need to know first
-
-This chapter assumes graph fundamentals (Vol. 1 Chapter 5) — vertices, edges, BFS, DFS, shortest paths. For the matrix-vector view of PageRank and other linear-algebraic centralities, basic linear algebra. For submodularity in influence maximization, see Vol. 1 Chapter 11 (approximation algorithms — the greedy algorithm with submodularity gives `(1 − 1/e)` approximation). For random walks underlying network sampling and personalized PageRank, see Chapter 7.
-
-## Centrality — four canonical measures
-
-Centrality answers "how important is this vertex?" Different measures formalize importance differently.
-
-**Degree centrality.** The simplest: count of edges incident to a vertex. Cheap to compute (`O(1)` per vertex with the right representation). Captures local prominence — many connections — but ignores who those connections are. A vertex with many low-importance neighbors and a vertex with many high-importance neighbors look identical.
-
-Use when: local connectivity is the question. Limit: misses indirect importance.
-
-**Betweenness centrality.** Counts how often a vertex lies on shortest paths between other pairs of vertices. High betweenness = bridge or bottleneck. Computable in `O(V·E)` for unweighted graphs (Brandes 2001) [verify].
-
-Use when: identifying brokers, structural holes, communication choke points. Limit: expensive at scale; sensitive to small graph changes.
-
-**Closeness centrality.** Average inverse shortest-path distance to all other vertices. High closeness = quickly reaches everyone. Computable in `O(V·E)` for unweighted graphs.
-
-Use when: information-spread or reachability questions. Limit: requires a connected graph; disconnected components break the measure.
-
-**Eigenvector centrality (and PageRank).** A vertex's centrality is proportional to the sum of its neighbors' centralities. Recursive — high-importance neighbors confer importance. Computed by power iteration on the adjacency matrix (or the transition matrix with damping for PageRank).
-
-PageRank (Brin and Page 1998) [verify] adds a teleportation factor: with probability `(1−d)`, the random walker jumps to a uniformly random vertex. This solves dangling-vertex pathologies and ensures the stationary distribution exists for all graphs.
-
-Use when: importance propagates through links (web ranking, citation, expertise). Limit: dominated by hubs in scale-free networks.
-
-## Community detection
-
-Most real networks have community structure: subsets of vertices densely connected to each other and sparsely connected outside. Community detection identifies these subsets.
-
-**Modularity.** A scoring function for a partition: `Q = (1/2m) Σ [A_{ij} − k_i k_j / 2m] · 1_{c_i = c_j}` where `A` is the adjacency matrix, `k_i` is degree, and the indicator is 1 when `i` and `j` are in the same community. High modularity = more within-community edges than expected at random. Newman 2004 [verify].
-
-**Louvain method.** Greedy modularity optimization. Each vertex starts in its own community; iteratively move vertices to neighboring communities that maximize modularity gain; aggregate communities into super-vertices and repeat. Time: `O(N log N)` typically, scales to billions of vertices. Blondel et al. 2008 [verify]. The dominant production choice.
-
-**Leiden algorithm.** Refinement of Louvain that addresses a known issue with Louvain producing badly-connected communities. Traag et al. 2019 [verify].
-
-**Spectral clustering.** Eigenvectors of the graph Laplacian give clustering directions. The number of near-zero eigenvalues approximates the number of communities; the eigenvectors give partition information. Computationally expensive; works well on small to medium networks.
-
-**Stochastic block models.** Probabilistic generative model where each vertex has a latent community label; edges form with probabilities that depend on community labels. Inference via MCMC or variational methods. Used when community detection benefits from statistical foundations and goodness-of-fit testing.
-
-**Resolution limit.** Modularity-based methods cannot detect communities below a size threshold determined by the network's total size — the "resolution limit" (Fortunato and Barthélemy 2007) [verify]. For very small communities in very large networks, modularity merges them. Newer methods (CPM, multi-resolution Louvain) address this.
-
-## Influence and diffusion
-
-How does influence spread through a network? The classical models.
-
-**Independent Cascade (IC) model.** Each vertex is initially active or inactive. Active vertex `u` has one chance to activate its neighbor `v` with probability `p_{uv}`. Activations propagate in discrete time steps until no new activations occur.
-
-**Linear Threshold (LT) model.** Each vertex has a random threshold `θ_v` and edge weights `w_{uv}` that sum to at most 1. Vertex `v` becomes active when the sum of weights from active neighbors exceeds `θ_v`.
-
-Both models are widely used; choice depends on the dynamics being modeled. IC fits viral propagation (each contact is a separate chance). LT fits behavioral adoption (cumulative pressure from neighbors).
-
-**Influence maximization problem.** Given a graph and a budget `k`, choose `k` "seed" vertices to activate initially that maximize the expected number of vertices activated by the diffusion. NP-hard in both IC and LT.
-
-**Greedy with submodularity.** The expected influence spread under IC and LT is *submodular* in the seed set (adding a seed to a smaller set helps more than adding it to a larger set). Greedy — at each step, add the seed maximizing marginal influence — is a `(1 − 1/e) ≈ 0.632`-approximation by the Nemhauser-Wolsey-Fisher 1978 [verify] result on submodular maximization. Kempe-Kleinberg-Tardos 2003 [verify] established this for influence maximization specifically.
-
-The submodularity argument is the chapter's most consequential fact for practitioners. It says: greedy is provably good (within a factor of `1/e ≈ 0.37` of optimal), no matter the graph, no matter the seed budget. The same is not true of degree heuristics or other centrality-based selections, which can be arbitrarily bad in adversarial cases.
-
-**Computational cost.** Each greedy iteration requires estimating influence spread, which is `#P-hard` to compute exactly. Monte Carlo simulation is the workhorse — repeatedly simulate diffusion from candidate seed sets, average over runs. CELF (Cost-Effective Lazy Forward, Leskovec et al. 2007) [verify] reduces simulation cost by lazy evaluation of marginal gains.
-
-## Decision rules
-
-| Question | Approach |
-| --- | --- |
-| Most-connected vertices | Degree centrality |
-| Bridges and structural holes | Betweenness centrality |
-| Vertices that reach everyone fast | Closeness centrality |
-| Web-ranking style importance | PageRank or eigenvector centrality |
-| Find dense subgraphs | Modularity-based community detection (Louvain or Leiden) |
-| Probabilistic community assignments | Stochastic block model |
-| Maximum spread on small budget | Greedy influence maximization with submodularity |
-| Practical influence maximization, large network | CELF + Monte Carlo simulation |
-| Local neighborhood structure | Clustering coefficient |
-| Distance distribution | All-pairs shortest paths (small networks) or sampling (large) |
-| Detect rare/structural roles | Network embedding (DeepWalk, node2vec) + clustering |
-| Predict missing edges | Link prediction with node similarity scores |
-| Network too large for direct computation | Sampling, approximation, or graph neural networks (magazine) |
-
-## Worked example — influence maximization for marketing
-
-A company wants to launch a new product. They have a social-graph dataset of 100 million users [verify] with follow relationships from a major platform. Budget: free product samples to 1,000 users. Goal: maximize the number of users who eventually adopt the product through cascading influence.
-
-This is influence maximization with budget `k = 1000`. The target metric is *expected number of activated users* under a diffusion model (IC or LT).
-
-**Naive degree heuristic.** Pick the 1,000 highest-degree users. Send them samples. Worst-case: the 1,000 highest-degree users are mostly in the same community, redundantly reaching the same downstream audience. Empirical studies show degree heuristics produce influence spread that's roughly half what greedy achieves on real networks [verify].
-
-**Greedy with submodularity.** At step `i`, pick the user `u` whose addition to the current seed set maximally increases expected influence. Continue until 1,000 users selected.
-
-The submodularity guarantee: the resulting seed set produces influence within `(1 − 1/e) ≈ 0.632` of the optimal `k = 1000` set. The bound is *worst-case*; on real networks the achieved fraction is typically higher (often 0.9 of optimal).
-
-**Implementation challenges.**
-
-*Influence spread is expensive to compute.* Each marginal-gain evaluation requires running many Monte Carlo simulations of diffusion from the candidate seed set. For 100M users and 1000 candidate seeds per round, naive greedy is prohibitively expensive.
-
-*CELF for efficiency.* Cost-Effective Lazy Forward exploits submodularity to skip re-evaluating marginal gains that cannot exceed the current best. Reduces simulation cost by 10–100× without changing the guarantee.
-
-*Distributed computation.* The 100M-vertex graph doesn't fit on one machine. Distributed graph processing (Pregel, GraphX, Giraph) and approximate algorithms (sketch-based influence estimation) handle the scale.
-
-**Why centrality-based approaches fail.**
-
-A practitioner might argue: "Just use the highest-PageRank users." PageRank captures importance via random walks; it doesn't capture diffusion-spread. High-PageRank users may have audiences that overlap with each other; diffusion from them may be redundant.
-
-Greedy with submodularity *adapts* — after picking the first seed, the marginal gain of subsequent candidates is computed conditional on the first seed. The algorithm picks complementary seeds (different downstream reach) rather than redundant ones. Centrality measures don't have this adaptivity.
-
-**Epidemiological applications.** The same algorithm with the same submodularity argument applies to disease spread modeling. Public health agencies can identify vaccination targets that maximize herd-immunity coverage. The IC/LT models map onto SIR/SIS epidemic models with appropriate parameter translation. Used in real public-health practice with case-study work in measles control, HIV prevention, and (post-2020) COVID-19 contact tracing strategies [verify].
-
-**The lesson.** Influence maximization is the canonical example of greedy with submodularity — a polynomial-time approximation with a provable bound on a hard problem. The bound is loose on most real networks; the empirical performance is excellent. Centrality heuristics are easier to compute but produce arbitrarily worse results in adversarial cases and meaningfully worse results in typical cases.
-
-## Failure modes — when "centrality measures are interchangeable" misleads
-
-The misconception engaged: "Centrality measures are interchangeable."
-
-Different centralities answer different questions. Conflating them produces wrong answers.
-
-**Degree centrality vs eigenvector centrality.** A vertex with 1000 neighbors of low importance has high degree centrality. A vertex with 10 neighbors of high importance has high eigenvector centrality. PageRank and degree disagree on hubs versus authorities — Brin and Page's distinction was deliberate.
-
-**Closeness centrality requires a connected graph.** On a disconnected graph, closeness is undefined for vertices that can't reach all others. Replacing infinity with a large constant produces misleading rankings. Use harmonic centrality or component-aware variants.
-
-**Betweenness centrality is fragile.** Removing a single edge can dramatically change betweenness rankings. Insensitive to edge weights unless explicitly weighted. Computationally expensive at scale; approximation algorithms have their own biases.
-
-**PageRank dominated by hubs.** In scale-free networks, PageRank concentrates on the hub and a small number of others. The non-hub structure is hard to extract. Personalized PageRank (with non-uniform teleportation) gives finer-grained importance.
-
-**Centrality is not influence.** Influence is a process question (how does information spread?), not a structural question. The most central vertex by any structural measure may not be the best seed for influence spread, especially under specific diffusion models.
-
-**Real networks have multiple "centers."** Hubs, brokers, peripherals, and bridges are distinct roles. A single centrality measure flattens this multidimensional structure into one number. Use multiple centralities, or use embedding-based methods that capture role rather than rank.
-
-**Small changes in graph definition produce large changes in centrality.** Whether to include a "weak" relationship as an edge, whether to weight by recency, whether to include retweets vs follows — these choices have large effects on rankings. Centrality is a function of the graph, and the graph's construction is itself a modeling choice.
-
-**Centrality misses temporal structure.** Static centrality measures average over time. Dynamic networks have time-varying centralities; a vertex active recently may be more important now than one with high historical centrality. Temporal-network methods (Holme-Saramäki 2012) [verify] address this.
-
-The corrective heuristic: state the centrality question precisely (most connected? most central in shortest-path sense? most influential in random-walk sense? most influential under specific diffusion model?), then choose the matching measure.
-
-## Cross-references
-
-For graph fundamentals (BFS, DFS, shortest paths) underlying centrality computation, see Vol. 1 Chapter 5. For PageRank as a random walk and the underlying random-walk theory, see Chapter 7. For submodularity and greedy approximation guarantees on NP-hard problems, see Vol. 1 Chapter 11. For the NP-hardness of influence maximization specifically, see Vol. 1 Chapter 10. For network flow as bipartite matching (the matching-market analog), see Vol. 1 Chapter 9. For randomized algorithms underlying Monte Carlo influence estimation, see Vol. 1 Chapter 12.
-
-## Companion-page handoffs
-
-Network analysis libraries (NetworkX, igraph, graph-tool) comparison; social-network datasets (SNAP, KONECT, Network Repository) catalog; Louvain and Leiden implementations; PageRank deep-dive; influence-maximization benchmarks across IC, LT, and SIR diffusion models; CELF implementation; pointer to magazine for graph neural networks. Available at bearbrown.co/algorithms-by-bear-vol2/chapter-8.
-
-## What this chapter does not enable
-
-This chapter does not give a treatment of graph neural networks (GNNs) — graph convolutional networks, message-passing neural networks, graph attention networks. GNN coverage lives in the *Algorithms by Bear* magazine. The chapter also does not cover signed networks (with positive and negative edges) or temporal networks (with edge timestamps) at depth; both are covered briefly. Spectral graph theory at the level required for advanced community detection (matrix functions on the Laplacian, Cheeger's inequality, expander mixing) lives in spectral graph theory texts.
-
-## Capability statement
-
-You can now apply graph algorithms to social-network problems — centrality, community detection, influence maximization; recognize which algorithm fits which question; distinguish PageRank-class importance measures from local-degree measures; apply modularity-based community detection at scale; use greedy with submodularity for influence maximization with provable approximation; and avoid the failure mode of treating centrality measures as interchangeable when they answer different questions. The next time a network-analytic question arrives — who matters? who clusters together? who maximizes reach? — the path from question to algorithm to deployment is in your hands.
-
+*The most important person in any network is almost never who you think.*
 
 ---
 
-## LLM Exercise — Chapter 8: A Network Decision and the Diary Synthesis
+Here is a fact that bothered me the first time I heard it.
+
+In 1973, a sociologist named Mark Granovetter published a paper arguing that the people who matter most for spreading information through a social network are not your close friends. They are your *weak ties* — the acquaintances you barely know, the former colleagues you see twice a year, the distant contacts you almost never think about. Your close friends, it turns out, mostly know the same things you know. Your weak ties know things from entirely different parts of the network. If you want information to travel far, you route it through the people you barely talk to.
+
+This is counterintuitive in a specific way. It is not just surprising — it is wrong in the direction you'd expect. Strong relationships feel like they should be strong carriers. Weak relationships feel fragile, unreliable. But the network's information structure doesn't care about the strength of your affection. It cares about whether an edge bridges two otherwise disconnected regions. Weak ties are often bridges. Strong ties are often redundant.
+
+Understanding why that's true — and what it implies for the algorithms we use to analyze networks — is what this chapter is about.
+
+<!-- → [DIAGRAM: small graph with two dense clusters (strong ties within each cluster shown as thick edges) connected by a single thin edge (weak tie) — label one cluster "your close friends" and the other "a different community"; annotate that information starting in cluster 1 can only reach cluster 2 by crossing the weak-tie bridge; student should see visually why weak ties are structurally irreplaceable even when they feel unimportant] -->
+
+---
+
+## What you're looking at
+
+A social network is a graph. Vertices are entities — people, accounts, organizations, papers, web pages. Edges are relationships — friendships, follows, citations, collaborations, transactions, retweets. The graph might be directed (A follows B, but B doesn't follow A) or undirected (A and B are friends, symmetrically). Edges might be weighted (how many emails did they exchange?) or binary (did they interact at all?).
+
+Everything that follows is graph mathematics applied to this structure. But the graph mathematics earns its place only because the graph actually represents something real. If you take a platform's user list and draw edges between users who share the same city, you get a graph-shaped object. What you don't get is a social network — those edges don't encode actual relationships, so the algorithms produce graph-shaped noise rather than social-network insight.
+
+The first discipline of network analysis is the one most often skipped: make sure your edges mean something.
+
+Three kinds of questions come up repeatedly.
+
+*Who matters?* This is centrality. Not "who has the most followers" — that's one answer to one version of the question. Different formulations of "who matters" produce different answers, and conflating them is the canonical error.
+
+*Who clusters together?* This is community detection. Real networks have dense subgraphs — regions where many vertices connect to each other and few connect outside. Identifying those regions reveals the community structure of the network.
+
+*If I activate a small number of vertices, how many can I eventually reach?* This is influence maximization. It is the formalization of "who should I seed a marketing campaign to," "which people should I vaccinate to maximize herd immunity," "who should I recruit if I want an idea to spread."
+
+These three questions are distinct. The algorithms that answer them are different. The failure modes are different. Start by knowing which question you're actually asking.
+
+---
+
+## Centrality: four different answers to "who matters"
+
+The simplest measure is degree centrality: count how many edges a vertex has. High degree means many connections. This is cheap to compute and easy to interpret, and it is often wrong as a proxy for importance.
+
+Here is why. Suppose you are a moderately well-connected person who happens to know five extremely well-connected people. Your degree is five. Your neighbor's degree might also be five — five connections to five unknown people who know nobody. Degree centrality treats these the same. But your five connections open doors that your neighbor's five connections do not.
+
+The fix is eigenvector centrality: a vertex's importance is proportional to the sum of its neighbors' importances. This is recursive — you can't compute it in one pass — but it converges via an iterative method called power iteration. Start with any initial importance vector; repeatedly multiply by the adjacency matrix; normalize; repeat until it stabilizes. The stable vector is the leading eigenvector of the adjacency matrix, and it encodes the recursive notion of importance.
+
+PageRank is eigenvector centrality with a repair. The problem with pure eigenvector centrality on directed graphs is pathological: vertices with no outgoing edges become "importance sinks" that absorb centrality and don't distribute it. Brin and Page fixed this with a teleportation factor. With probability $1 - d$ at each step, a random walker jumps to a uniformly random vertex rather than following an edge. This ensures the stationary distribution of the walk exists and is well-defined for any graph. The resulting PageRank scores are the stationary distribution of this modified random walk. For most reasonable choices of $d$ (typically $d = 0.85$), PageRank correlates well with what human judges call "important" on the web.
+
+The third major centrality measure is betweenness. Betweenness centrality counts how often a vertex lies on the shortest path between two other vertices — across all pairs of vertices in the network. A vertex with high betweenness is a bridge. Information flowing between two communities that are only loosely connected must pass through it. Remove it, and the network may fragment. Betweenness is the algorithmic formalization of Granovetter's intuition: the bridges between communities are structurally important regardless of their local degree.
+
+Betweenness is expensive. For an unweighted graph with $V$ vertices and $E$ edges, computing it exactly takes $O(V \cdot E)$ — manageable for networks with millions of vertices, but tight. Approximation algorithms sample pairs and estimate.
+
+The fourth is closeness centrality: the average inverse shortest-path distance from a vertex to all others. High closeness means you can reach everyone quickly. It answers a different question than betweenness — not "do you lie on many paths?" but "if you start from here, how long until you reach everywhere?"
+
+These four measures can disagree completely on the same network. A highly-connected hub has high degree and often high eigenvector centrality, but may have moderate betweenness if its connections are concentrated in one community. A low-degree vertex that bridges two communities can have high betweenness and moderate closeness, but low degree and low eigenvector centrality. The error is choosing one measure and treating it as "the" answer to "who matters." Each measure answers a specific question. Know which question you're asking.
+
+<!-- → [DIAGRAM: one small network (~10 vertices) with two dense clusters connected by a bridge vertex — annotate four separate rankings on the same graph: (1) vertex with highest degree circled in one color, (2) highest betweenness in another (the bridge), (3) highest closeness in a third, (4) highest PageRank in a fourth; the four circles should land on different vertices, making the disagreement visible in one image] -->
+
+---
+
+## Community detection: what clustering means for graphs
+
+Most real networks have community structure. There are regions of high internal density — vertices that connect heavily to each other — separated by sparse connections to the rest of the network. In a friendship network, these are social groups. In a citation network, research subfields. In a corporate email network, teams and departments.
+
+Community detection asks: given the graph's edge structure, infer the community assignments.
+
+The standard quality measure is modularity, defined as the fraction of edges that fall within communities minus the fraction expected if edges were placed at random (holding degree fixed). High modularity means the community structure is better than chance. A partition with modularity near zero has community structure no better than random; near one is perfectly structured (though values above 0.3 to 0.7 in practice already indicate meaningful structure).
+
+$$Q = \frac{1}{2m} \sum_{i,j} \left[ A_{ij} - \frac{k_i k_j}{2m} \right] \cdot \mathbf{1}_{c_i = c_j}$$
+
+where $A$ is the adjacency matrix, $k_i$ is the degree of vertex $i$, $m$ is the total number of edges, and the indicator is 1 when vertices $i$ and $j$ are in the same community. The term $k_i k_j / 2m$ is the expected number of edges between $i$ and $j$ in a random graph with the same degree sequence. Modularity measures excess over this expectation.
+
+Maximizing modularity exactly is NP-hard. The dominant practical algorithm is Louvain: start with every vertex in its own community; greedily move each vertex to the neighboring community that most increases modularity; aggregate communities into super-vertices and repeat until no improvement is possible. Louvain is fast — $O(N \log N)$ in practice — and scales to networks with billions of vertices.
+
+Louvain has a known flaw: it can produce communities that are internally disconnected — two disconnected subgraphs that get merged because merging them increases the global modularity score. The Leiden algorithm (2019) fixes this by adding a refinement step that checks internal connectivity. For most production use, Leiden is the current recommendation.
+
+There is also a deeper issue with modularity-based methods. Modularity has a resolution limit: for large networks, communities below a certain size cannot be detected — they get merged into larger communities regardless of their internal structure. The threshold scales with network size. For very small communities in very large networks, modularity-based methods fail systematically. This is not a bug in the implementation; it is a property of the objective function.
+
+The alternative is the stochastic block model: a probabilistic generative model where vertices have latent community labels, and edges form with probabilities that depend on the community labels of their endpoints. Fitting the model to data via MCMC or variational inference gives both community assignments and a statistical measure of fit. Block models avoid the resolution limit, handle overlapping communities, and come with principled uncertainty quantification. They are slower than Louvain at scale but give more reliable results when small communities matter.
+
+<!-- → [DIAGRAM: side-by-side illustration of Louvain vs. Leiden on a network with one small tight community inside a larger loosely-connected region — left panel shows Louvain merging the small community into the large one (resolution limit failure); right panel shows Leiden correctly identifying the small community as separate; caption should name the resolution limit explicitly] -->
+
+---
+
+## Influence maximization: the greedy guarantee
+
+The influence maximization problem is this. You have a graph and a budget of $k$ vertices to "seed" — activate initially. Under a diffusion model, activation spreads through the network. You want to choose the $k$ seeds that maximize the expected number of eventually-activated vertices.
+
+The two standard diffusion models are Independent Cascade and Linear Threshold.
+
+In Independent Cascade, each active vertex $u$ gets one chance to activate each of its inactive neighbors: with probability $p_{uv}$, it succeeds. Activation propagates in discrete rounds until no new activations occur. Think of viral transmission: each infected person has independent chances to infect their contacts.
+
+In Linear Threshold, each vertex $v$ has a threshold $\theta_v$ drawn uniformly from $[0, 1]$. Each edge $(u, v)$ has a weight $w_{uv}$. Vertex $v$ activates when the sum of weights from already-active neighbors exceeds $\theta_v$. Think of behavioral adoption: you adopt a new behavior when enough of your friends already have.
+
+Influence maximization is NP-hard under both models. No polynomial-time algorithm finds the optimal seed set in general.
+
+But here is the key structural fact that saves us: under both IC and LT, the expected influence spread is a *submodular* function of the seed set. Submodularity means that adding a seed to a smaller set helps at least as much as adding it to a larger set. Formally: for any seed sets $S \subseteq T$ and any vertex $v \notin T$:
+
+$$f(S \cup \{v\}) - f(S) \geq f(T \cup \{v\}) - f(T)$$
+
+This is the diminishing-returns property. Adding a new seed to a small set reaches new people it wouldn't have reached otherwise. Adding the same seed to a large set reaches fewer additional people, because many of them are already covered.
+
+Submodularity is powerful because of a theorem by Nemhauser, Wolsey, and Fisher (1978): for any monotone submodular function, the greedy algorithm — at each step, add the element that maximizes marginal gain — achieves at least a $(1 - 1/e) \approx 0.632$ fraction of the optimal value. This bound holds for all instances, all graphs, all budget values. The greedy algorithm for influence maximization is therefore provably within 37% of optimal, regardless of network structure.
+
+Kempe, Kleinberg, and Tardos proved in 2003 that the IC and LT spread functions are indeed submodular, establishing the guarantee for influence maximization specifically. The result is one of the more consequential algorithmic facts for practitioners: you get a provable approximation bound on a hard problem, and the bound is tight (submodularity is exactly the property that makes the greedy guarantee work, and no stronger guarantee is achievable without assuming more structure).
+
+<!-- → [CHART: bar chart comparing influence spread achieved by three strategies — degree heuristic, PageRank heuristic, and greedy with submodularity — across seed-set budgets k = 10, 50, 100, 500; a horizontal line at (1 − 1/e) × optimal marks the greedy floor; student should see that greedy consistently meets or exceeds its guarantee while centrality heuristics trail significantly at larger budgets] -->
+
+Computing marginal gains requires estimating influence spread from a candidate seed set — a $\#P$-hard computation exactly. Monte Carlo simulation is the standard: simulate the diffusion many times from the candidate set, average the results. For large networks with large budgets, this is expensive. The CELF algorithm (Leskovec et al., 2007) uses submodularity to reduce work: once a candidate's marginal gain falls below the current best, it cannot possibly be the best in this round. Lazy evaluation skips the expensive simulation for most candidates, reducing cost by orders of magnitude without affecting the output.
+
+The comparison to centrality-based heuristics is instructive. The natural shortcut is to seed the highest-degree or highest-PageRank vertices. This sometimes works well. It sometimes doesn't, and there are adversarial constructions where centrality heuristics produce influence spread that is a constant fraction of optimal — arbitrarily bad. Greedy with submodularity has no such adversarial case. The $(1 - 1/e)$ bound holds unconditionally.
+
+---
+
+## A marketing campaign
+
+Let me make the comparison concrete.
+
+A company wants to launch a product on a platform with 100 million users. They can give free samples to 1,000 users and want to maximize the number who eventually adopt through cascading influence. Classic influence maximization with $k = 1000$.
+
+The naive approach: pick the 1,000 highest-degree users. Send them samples. The problem is redundancy. The highest-degree users are often highly connected to each other — they form the core of the network. Their downstream audiences overlap substantially. You might be reaching the same million users 50 different ways while ignoring 90 million users in peripheral communities.
+
+Greedy with submodularity adapts. After picking the first seed, the marginal gain for the second seed is computed conditional on the first being active. Vertices whose downstream audience overlaps heavily with the first seed provide lower marginal gain than vertices in different network regions. The algorithm naturally selects seeds that are complementary — spreading across different communities rather than concentrating in one.
+
+Empirical studies on real social networks show degree heuristics producing influence roughly half what greedy achieves on the same graph and budget. The $(1 - 1/e)$ bound is the floor; the typical performance is considerably better.
+
+The same algorithm applies to vaccination targeting: given a contact network and a limited vaccine supply, maximize herd-immunity coverage. The IC model maps cleanly to SIR epidemic dynamics. Public health applications have used these methods for measles control, HIV prevention, and contact-tracing prioritization. The mathematics is identical; the edge weights encode transmission probabilities rather than social influence. The greedy guarantee holds for the same reason.
+
+<!-- → [INFOGRAPHIC: two-panel network diagram illustrating degree-heuristic seeding vs. greedy seeding on the same 20-vertex network — left panel shows 5 seeds clustered in the high-degree core (seed coverage circles overlapping heavily); right panel shows 5 greedy seeds distributed across different communities (coverage circles touching but not overlapping much); annotate total reachable vertices for each — student should see why complementary seeds outperform redundant seeds] -->
+
+---
+
+## The failure modes
+
+The central mistake this chapter names is "centrality measures are interchangeable." The concrete ways this goes wrong:
+
+Degree centrality misses recursive importance. A low-degree vertex connected to the hub of every major community has high eigenvector centrality and may be the most important vertex in the network for information flow. Degree would rank them unremarkably.
+
+Betweenness centrality is fragile. Adding or removing a single edge can dramatically shift betweenness rankings. It is also computationally expensive and sensitive to the graph's definition — whether to include low-weight edges, whether to handle directed vs. undirected structure. Rankings shift with modeling choices.
+
+Closeness centrality breaks on disconnected graphs. For a vertex that cannot reach all others, closeness is undefined unless you make a convention about how to handle infinity. The harmonic mean (sum of inverse distances, skipping unreachable vertices) is the standard fix, but the resulting rankings differ from the connected-graph definition.
+
+PageRank concentrates in scale-free networks. High-degree hubs absorb PageRank; the non-hub structure is compressed into a small dynamic range. Personalized PageRank — where the teleportation distribution is non-uniform, biased toward a specific set of vertices — gives more discriminative importance scores for vertices in a particular region of the network.
+
+And most importantly: centrality is not influence. Centrality measures static structural properties of the graph. Influence is a dynamic process question — how far does activation spread from this vertex, through this diffusion model, in this particular instance? A high-betweenness vertex that bridges two communities is structurally important, but if the diffusion probabilities on its bridge edges are low, it may carry little actual influence. The algorithms for influence maximization (greedy with submodularity) are designed for the dynamic question; centrality measures are designed for the structural one. Using a structural measure to answer a dynamic question gives a structurally-motivated but process-uninformed answer.
+
+The corrective practice: state the question precisely. Most connected? — degree. Most influential in random-walk terms? — PageRank. Best broker or bottleneck? — betweenness. Fastest to reach everyone? — closeness. Maximum expected spread under IC or LT? — greedy influence maximization. Each of these is a different question. Each has a different answer.
+
+---
+
+## A decision table
+
+| Question | Measure or algorithm |
+|---|---|
+| Most directly connected | Degree centrality |
+| Structural broker or bottleneck | Betweenness centrality |
+| Reaches everyone fastest | Closeness centrality |
+| Connected to important others | Eigenvector centrality or PageRank |
+| Find dense communities at scale | Louvain or Leiden (modularity) |
+| Small communities in large network | Leiden, CPM, or stochastic block model |
+| Probabilistic community assignments | Stochastic block model |
+| Maximize spread from $k$ seeds | Greedy with submodularity + Monte Carlo |
+| Large network, maximize spread cheaply | CELF + Monte Carlo |
+| Missing-edge prediction | Node similarity scores or embedding |
+| Network too large for direct computation | Sampling, approximation, graph neural networks |
+
+---
+
+## What you can now do
+
+You can ask the right question about a social network — centrality, community, or influence — and choose the algorithm that answers it. You know that degree, betweenness, closeness, and PageRank are four different answers to four different formulations of "who matters," and that using one when another is appropriate gives a confidently wrong result.
+
+You know what modularity measures and why it has a resolution limit. You know the difference between Louvain (fast, sometimes disconnected communities) and Leiden (slightly slower, internally connected). You know the stochastic block model as an alternative when small communities or statistical guarantees matter.
+
+You know the influence maximization problem, why it's NP-hard, and why greedy with submodularity achieves $(1 - 1/e) \approx 0.632$ of optimal regardless of graph structure. You know that CELF reduces the computational cost without changing the guarantee. And you know why centrality heuristics fail for influence maximization in adversarial cases — because they answer the structural question rather than the dynamic one.
+
+Granovetter's weak ties are bridges. The algorithms in this chapter find the bridges, measure their structural importance, identify the communities on either side, and compute how far a signal launched from one bridge vertex will travel. That is what graph mathematics gives you that intuition doesn't.
+
+---
+
+## Exercises
+
+### Warm-up
+
+**1.** Consider a small network: vertex A is connected to vertices B, C, D, and E. Vertex B is connected to A and to vertices F, G, and H. Vertex C is connected only to A. Vertices D and E are connected only to A. Vertices F, G, H are connected only to B.
+
+Compute (a) the degree centrality of A and B; (b) which vertex — A or B — has higher eigenvector centrality, and why, without formal calculation; (c) which vertex is the better broker between the F-G-H cluster and the rest of the network.
+
+*Tests: degree vs. eigenvector centrality on a concrete example; intuition for betweenness without computation.*
+
+**2.** Explain in plain language why PageRank adds a teleportation factor, and what specific pathology it fixes. Give a concrete example of a graph structure (you can describe it in words) where pure eigenvector centrality would produce a meaningless result, and show why teleportation fixes it.
+
+*Tests: the PageRank teleportation repair as a solution to a specific structural problem, not a magic constant.*
+
+**3.** A colleague says: "I ran betweenness centrality on our company's email network and found the top five brokers. Then I added one new person to the network. Now the top five brokers are completely different. Betweenness must be broken." Respond to this critique. Is the colleague right that betweenness is "broken," or is this expected behavior? What does it tell you about how to use betweenness in practice?
+
+*Tests: fragility of betweenness centrality; appropriate expectations for structural measures on changing graphs.*
+
+---
+
+### Application
+
+**4.** A research team wants to identify which scientists in a citation network are "most important." They are considering three approaches: (a) count how many papers cite each scientist (in-degree); (b) compute PageRank on the citation graph; (c) compute betweenness on the citation graph.
+
+For each approach, name the specific question it answers and describe a scenario where it gives the right answer — and a scenario where it gives a misleading one. Which approach would you recommend for a team trying to identify "whose ideas have influenced the most subsequent work," and why?
+
+*Tests: matching centrality measure to research question; understanding when each measure fits and when it misleads.*
+
+**5.** You run Louvain community detection on a large professional network (50,000 users) and find 200 communities. A colleague points out that the company's internal org chart has 800 teams, many of them small (5–15 people). They suspect some communities in your result are mergers of several small teams. What property of modularity-based detection explains this, and how would you address it algorithmically?
+
+*Tests: the modularity resolution limit; when to prefer Leiden, CPM, or stochastic block models.*
+
+**6.** You have a seed budget of $k = 5$ and want to maximize influence spread under the Independent Cascade model on a network with 1,000 users. Describe the greedy algorithm step by step — specifically, how do you select each seed, what computation is required at each step, and why you cannot select all five seeds simultaneously. Name the theorem that guarantees the quality of the result and state what it guarantees.
+
+*Tests: greedy influence maximization mechanics; naming and applying the submodularity guarantee.*
+
+**7.** A public health agency wants to vaccinate 500 people in a city of 200,000 to maximally reduce disease spread. They have two strategies under consideration: (a) vaccinate the 500 people with the most social contacts (highest-degree heuristic); (b) use greedy influence maximization with an IC-style transmission model calibrated to the disease's transmission probability.
+
+Explain why strategy (a) may fail to achieve optimal coverage, with a specific structural argument. What additional information would you need to implement strategy (b)?
+
+*Tests: centrality vs. influence distinction applied to a public health context; practical requirements of influence maximization.*
+
+---
+
+### Synthesis
+
+**8.** Consider the following scenario. You are analyzing an organization's internal Slack message graph. You compute all four centrality measures and get these results for two people, X and Y:
+
+| Measure | Person X | Person Y |
+|---|---|---|
+| Degree | High | Low |
+| Eigenvector | High | Low |
+| Betweenness | Low | High |
+| Closeness | Medium | Medium |
+
+Write a two-paragraph interpretation. What structural role does each person likely play in the organization? If you were trying to spread a new policy quickly to all employees, which person would you approach first, and for what purpose? If you were trying to identify whose departure would most disrupt information flow, which person matters more?
+
+*Tests: integrating all four centrality measures into a coherent organizational interpretation; matching measure to question.*
+
+**9.** The chapter states that submodularity is the structural property that makes the greedy guarantee work. Verify your understanding of submodularity by constructing a small counterexample: describe a seed-selection scenario (you can invent the network) where the marginal gain of adding a specific vertex to a seed set of size 1 is *greater* than the marginal gain of adding that same vertex to a seed set of size 3. You don't need to do formal calculations — describe the network structure that makes this happen and explain why it demonstrates the diminishing-returns property.
+
+*Tests: intuitive verification of submodularity; understanding why diminishing returns arise from network overlap.*
+
+---
+
+### Challenge
+
+**10.** Granovetter's "forbidden triad" is a related concept: if A is strongly tied to B and A is strongly tied to C, then B and C are very likely to have at least a weak tie. The triad A-B, A-C without a B-C edge is "forbidden" in most real networks.
+
+Explain why the forbidden triad is forbidden — what network dynamic makes A-B-C without B-C unstable? Then connect this to the weak-ties result: if a B-C edge eventually forms, what happens to the information-bridging role of A? What does this imply about the long-term stability of structural brokerage positions in evolving networks?
+
+*Tests: Granovetter's forbidden triad argument; dynamic network thinking about bridge stability.*
+
+**11.** The chapter mentions that centrality heuristics can be "arbitrarily bad" in adversarial cases for influence maximization. Construct such a case: describe a network (in words or as an edge list) with $n$ vertices and a seed budget $k = 2$, where selecting the two highest-degree vertices produces influence spread that is a factor of roughly $n/4$ worse than the optimal two-seed selection. Explain why the greedy algorithm with submodularity would not make the same mistake.
+
+*Tests: adversarial construction against degree heuristics; understanding why submodularity-based greedy has no such adversarial case.*
 
 **Project:** *Decision Diary*.
 
@@ -200,33 +284,32 @@ answer.
 
 Walk me through:
 
-1. **What's the network?** Vertices, edges, directed or undirected,
+1. What's the network? Vertices, edges, directed or undirected,
    weighted or binary. If I'm describing a network without being
    able to name the edges, I'm not yet in network territory.
 
-2. **What's the actual question?**
+2. What's the actual question?
    - "Who's most central?" (centrality — but which kind?)
    - "Who clusters together?" (community detection)
    - "If I activate a small set, how far does influence spread?"
      (influence maximization)
    - Something else?
 
-3. **Pick the right centrality.**
+3. Pick the right centrality.
    - Degree: most connections.
    - Betweenness: lies on most shortest paths between others
      (broker, bottleneck).
    - Closeness: short average distance to all others.
    - Eigenvector / PageRank: connected to important others.
-   - Each answers a different question. Which question am I
-     asking?
+   Each answers a different question. Which question am I asking?
 
-4. **If it's influence maximization:** the chapter notes that
-   greedy with submodularity gives a (1 − 1/e) guarantee.
-   What's the diffusion model — linear-threshold, independent-
-   cascade? What's the seed-set budget?
+4. If it's influence maximization: the chapter notes that greedy
+   with submodularity gives a (1 − 1/e) guarantee. What's the
+   diffusion model — linear-threshold, independent-cascade?
+   What's the seed-set budget?
 
-5. **What are the limits of network-based prediction here?**
-   The chapter is explicit that not everything network-shaped is
+5. What are the limits of network-based prediction here? The
+   chapter is explicit that not everything network-shaped is
    network-structured — sometimes the relationships I'm treating
    as edges are noise.
 
@@ -235,27 +318,27 @@ PART TWO — Synthesis across the diary.
 Now look across all eight entries (you have them in your project
 context). Surface:
 
-1. **Recurring failure modes in my decision-making.** Where do I
+1. Recurring failure modes in my decision-making. Where do I
    consistently underweight priors? Where do I over-explore or
    under-explore? Where do I model opponents as more rational
    than they are? Where do I treat non-stationary situations as
    if they were stationary?
 
-2. **The methods I reach for naturally vs. the ones I avoid.**
+2. The methods I reach for naturally vs. the ones I avoid.
    Patterns. Some readers are Bayesian by instinct and
    under-use game-theoretic framings; some are the reverse.
 
-3. **The outcomes I should chase down.** Each entry had a
-   "*What would change my mind*" commitment. Which of those
-   outcomes can be observed in the next 1, 3, 6 months? Make me
-   a list with check-in dates.
+3. The outcomes I should chase down. Each entry had a "What
+   would change my mind" commitment. Which of those outcomes
+   can be observed in the next 1, 3, 6 months? Make me a list
+   with check-in dates.
 
-4. **One sentence that captures what the diary has taught me
-   about how I decide.** Not flattering. Honest.
+4. One sentence that captures what the diary has taught me
+   about how I decide. Not flattering. Honest.
 
 Output: two markdown sections. The first is the standard diary
-entry (same heading template as previous chapters). The second is
-a "Diary synthesis — [date]" section with the four numbered
+entry (same heading template as previous chapters). The second
+is a "Diary synthesis — [date]" section with the four numbered
 findings above and a one-sentence honest summary at the end.
 ```
 
@@ -281,7 +364,10 @@ The ideas in this chapter didn't appear from nowhere. **Mark Granovetter** publi
 **Run this:**
 
 ```
-Who is Mark Granovetter, and how does his 1973 paper on the strength of weak ties connect to the social network analysis we covered in this chapter? Keep it to three paragraphs. End with the single most surprising thing about his career or ideas.
+Who is Mark Granovetter, and how does his 1973 paper on the strength
+of weak ties connect to the social network analysis we covered in this
+chapter? Keep it to three paragraphs. End with the single most
+surprising thing about his career or ideas.
 ```
 
 → Search **"Mark Granovetter"** on Wikipedia. See what the model got right, got wrong, or left out.
@@ -291,4 +377,4 @@ Who is Mark Granovetter, and how does his 1973 paper on the strength of weak tie
 - Ask it to explain Granovetter's "forbidden triad" in plain language and connect it to the clustering coefficient measurements you ran.
 - Add a constraint: "Answer as the abstract of a follow-up paper to 'The Strength of Weak Ties,' written fifty years later."
 
-What changes? What gets better? What gets worse?
+What changes? What gets better? What gets wrong?
